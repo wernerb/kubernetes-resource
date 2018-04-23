@@ -16,23 +16,37 @@ setup_kubectl() {
   local kubeconfig_file="$(jq -r '.params.kubeconfig_file // ""' < $payload)"
   # Optional. The content of kubeconfig
   local kubeconfig="$(jq -r '.source.kubeconfig // ""' < $payload)"
+  # Optional. The namespace scope. Defaults to `default`. If set along with
+  # `kubeconfig`, `namespace` will override the namespace in the
+  # current-context.
+  local namespace="$(jq -r '.source.namespace // ""' < $payload)"
 
-  if [[ -n "$kubeconfig_file"  ]]; then
-    if [[ ! -f "$kubeconfig_file" ]]; then
-      echoerr "kubeconfig file '$kubeconfig_file' does not exist"
-      exit 1
+  if [[ -n "$kubeconfig_file" || -n "$kubeconfig" ]]; then
+    if [[ -n "$kubeconfig_file"  ]]; then
+      if [[ ! -f "$kubeconfig_file" ]]; then
+        echoerr "kubeconfig file '$kubeconfig_file' does not exist"
+        exit 1
+      fi
+
+      cat "$kubeconfig_file" > $KUBECONFIG
+    else
+      echo "$kubeconfig" > $KUBECONFIG
     fi
 
-    cat "$kubeconfig_file" > $KUBECONFIG
-  elif [[ -n "$kubeconfig" ]]; then
-    echo "$kubeconfig" > $KUBECONFIG
+    if [[ -n "$namespace" ]]; then
+      exe kubectl config set-context $(kubectl config current-context) --namespace="$namespace"
+    fi
+
+    # Optional. The name of the kubeconfig context to use.
+    local context="$(jq -r '.source.context // ""' < $payload)"
+    if [[ -n "$context" ]]; then
+      exe kubectl config use-context $context
+    fi
   else
     # Optional. The address and port of the API server. Requires token.
     local server="$(jq -r '.source.server // ""' < $payload)"
     # Optional. Bearer token for authentication to the API server. Requires server.
     local token="$(jq -r '.source.token // ""' < $payload)"
-    # Optional. The namespace scope. Defaults to default if doesn't specify in kubeconfig.
-    local namespace="$(jq -r '.source.namespace // ""' < $payload)"
     # Optional. A certificate file for the certificate authority.
     local certificate_authority="$(jq -r '.source.certificate_authority // ""' < $payload)"
     # Optional. If true, the API server's certificate will not be checked for
@@ -77,15 +91,10 @@ setup_kubectl() {
     exe kubectl config use-context $CONTEXT_NAME
   fi
 
-  local namespace="$(jq -r '.source.namespace // ""' < $payload)"
-  if [[ -n "$namespace" ]]; then
-    exe kubectl config set-context $(kubectl config current-context) --namespace="$namespace"
-  fi
-
-  # Optional. The name of the kubeconfig context to use.
-  local context="$(jq -r '.source.context // ""' < $payload)"
-  if [[ -n "$context" ]]; then
-    exe kubectl config use-context $context
+  # Optional. The namespace to use. This param will override the namespace of source configuration.
+  local namespace_param="$(jq -r '.params.namespace // ""' < $payload)"
+  if [[ -n "$namespace_param" ]]; then
+    exe kubectl config set-context $(kubectl config current-context) --namespace="$namespace_param"
   fi
 
   # Display the client and server version information
